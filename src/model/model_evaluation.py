@@ -11,7 +11,6 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import json
-from mlflow.models import infer_signature
 
 # logging configuration
 logger = logging.getLogger('model_evaluation')
@@ -30,7 +29,6 @@ file_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-
 def load_data(file_path: str) -> pd.DataFrame:
     """Load data from a CSV file."""
     try:
@@ -41,7 +39,6 @@ def load_data(file_path: str) -> pd.DataFrame:
     except Exception as e:
         logger.error('Error loading data from %s: %s', file_path, e)
         raise
-
 
 def load_model(model_path: str):
     """Load the trained model."""
@@ -66,7 +63,6 @@ def load_vectorizer(vectorizer_path: str) -> TfidfVectorizer:
         logger.error('Error loading vectorizer from %s: %s', vectorizer_path, e)
         raise
 
-
 def load_params(params_path: str) -> dict:
     """Load parameters from a YAML file."""
     try:
@@ -86,7 +82,7 @@ def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray):
         y_pred = model.predict(X_test)
         report = classification_report(y_test, y_pred, output_dict=True)
         cm = confusion_matrix(y_test, y_pred)
-        
+
         logger.debug('Model evaluation completed')
 
         return report, cm
@@ -130,7 +126,7 @@ def main():
     mlflow.set_tracking_uri("http://ec2-13-61-34-19.eu-north-1.compute.amazonaws.com:5000/")
 
     mlflow.set_experiment('dvc-pipeline-runs')
-    
+
     with mlflow.start_run() as run:
         try:
             # Load parameters from YAML file
@@ -140,38 +136,32 @@ def main():
             # Log parameters
             for key, value in params.items():
                 mlflow.log_param(key, value)
-            
+
             # Load model and vectorizer
             model = load_model(os.path.join(root_dir, 'lgbm_model.pkl'))
             vectorizer = load_vectorizer(os.path.join(root_dir, 'tfidf_vectorizer.pkl'))
 
-            # Load test data for signature inference
+            # Log model parameters
+            if hasattr(model, 'get_params'):
+                for param_name, param_value in model.get_params().items():
+                    mlflow.log_param(param_name, param_value)
+
+            # Log model and vectorizer
+            mlflow.sklearn.log_model(model, "lgbm_model")
+
+            model_path = "lgbm_model"
+
+            # Save model info
+            save_model_info(run.info.run_id, model_path, 'experiment_info.json')
+
+            mlflow.log_artifact(os.path.join(root_dir, 'tfidf_vectorizer.pkl'))
+
+            # Load test data
             test_data = load_data(os.path.join(root_dir, 'data/interim/test_processed.csv'))
 
             # Prepare test data
             X_test_tfidf = vectorizer.transform(test_data['clean_comment'].values)
             y_test = test_data['category'].values
-
-            # Create a DataFrame for signature inference (using first few rows as an example)
-            input_example = pd.DataFrame(X_test_tfidf.toarray()[:5], columns=vectorizer.get_feature_names_out())  # <--- Added for signature
-
-            # Infer the signature
-            signature = infer_signature(input_example, model.predict(X_test_tfidf[:5]))  # <--- Added for signature
-
-            # Log model with signature
-            mlflow.sklearn.log_model(
-                model,
-                "lgbm_model",
-                signature=signature,  # <--- Added for signature
-                input_example=input_example  # <--- Added input example
-            )
-
-            # Save model info
-            model_path = "lgbm_model"
-            save_model_info(run.info.run_id, model_path, 'experiment_info.json')
-
-            # Log the vectorizer as an artifact
-            mlflow.log_artifact(os.path.join(root_dir, 'tfidf_vectorizer.pkl'))
 
             # Evaluate model and get metrics
             report, cm = evaluate_model(model, X_test_tfidf, y_test)
@@ -199,123 +189,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# ...existing code...
-# import numpy as np
-# import pandas as pd
-# import pickle
-# import logging
-# import yaml
-# from sklearn.metrics import classification_report, confusion_matrix
-# from sklearn.feature_extraction.text import TfidfVectorizer
-# import os
-# import json
-
-# # logging configuration
-# logger = logging.getLogger('model_evaluation')
-# logger.setLevel('DEBUG')
-
-# console_handler = logging.StreamHandler()
-# console_handler.setLevel('DEBUG')
-
-# file_handler = logging.FileHandler('model_evaluation_errors.log')
-# file_handler.setLevel('ERROR')
-
-# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# console_handler.setFormatter(formatter)
-# file_handler.setFormatter(formatter)
-
-# logger.addHandler(console_handler)
-# logger.addHandler(file_handler)
-
-
-# def load_data(file_path: str) -> pd.DataFrame:
-#     """Load data from a CSV file."""
-#     try:
-#         df = pd.read_csv(file_path)
-#         df.fillna('', inplace=True)  # Fill any NaN values
-#         logger.debug('Data loaded and NaNs filled from %s', file_path)
-#         return df
-#     except Exception as e:
-#         logger.error('Error loading data from %s: %s', file_path, e)
-#         raise
-
-
-# def load_model(model_path: str):
-#     """Load the trained model."""
-#     try:
-#         with open(model_path, 'rb') as file:
-#             model = pickle.load(file)
-#         logger.debug('Model loaded from %s', model_path)
-#         return model
-#     except Exception as e:
-#         logger.error('Error loading model from %s: %s', model_path, e)
-#         raise
-
-
-# def load_vectorizer(vectorizer_path: str) -> TfidfVectorizer:
-#     """Load the saved TF-IDF vectorizer."""
-#     try:
-#         with open(vectorizer_path, 'rb') as file:
-#             vectorizer = pickle.load(file)
-#         logger.debug('TF-IDF vectorizer loaded from %s', vectorizer_path)
-#         return vectorizer
-#     except Exception as e:
-#         logger.error('Error loading vectorizer from %s: %s', vectorizer_path, e)
-#         raise
-
-
-# def load_params(params_path: str) -> dict:
-#     """Load parameters from a YAML file."""
-#     try:
-#         with open(params_path, 'r') as file:
-#             params = yaml.safe_load(file)
-#         logger.debug('Parameters loaded from %s', params_path)
-#         return params
-#     except Exception as e:
-#         logger.error('Error loading parameters from %s: %s', params_path, e)
-#         raise
-
-
-# def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray):
-#     """Evaluate the model and return dict report, text report and confusion matrix."""
-#     try:
-#         y_pred = model.predict(X_test)
-#         text_report = classification_report(y_test, y_pred)
-#         dict_report = classification_report(y_test, y_pred, output_dict=True)
-#         cm = confusion_matrix(y_test, y_pred)
-#         logger.debug('Model evaluation completed')
-#         return dict_report, text_report, cm
-#     except Exception as e:
-#         logger.error('Error during model evaluation: %s', e)
-#         raise
-
-
-# def main():
-#     try:
-#         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
-#         params = load_params(os.path.join(root_dir, 'params.yaml'))
-#         logger.debug('Loaded params: %s', params)
-
-#         model = load_model(os.path.join(root_dir, 'lgbm_model.pkl'))
-#         vectorizer = load_vectorizer(os.path.join(root_dir, 'tfidf_vectorizer.pkl'))
-
-#         test_data = load_data(os.path.join(root_dir, 'data/interim/test_processed.csv'))
-
-#         X_test_tfidf = vectorizer.transform(test_data['clean_comment'].values)
-#         y_test = test_data['category'].values
-
-#         report_dict, text_report, cm = evaluate_model(model, X_test_tfidf, y_test)
-
-#         # Print classification report to terminal
-#         print("Classification Report (Test Data):\n")
-#         print(text_report)
-
-#     except Exception as e:
-#         logger.error(f"Failed to complete model evaluation: {e}")
-#         print(f"Error: {e}")
-
-
-# if __name__ == '__main__':
-#     main()
-# ...existing code...
