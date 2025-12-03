@@ -51,3 +51,4 @@ def test_generate_trend_graph_endpoint():
     assert response.status_code == 200
     assert response.headers["Content-Type"] == "image/png"
     
+    
