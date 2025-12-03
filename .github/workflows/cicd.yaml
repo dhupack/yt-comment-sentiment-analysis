@@ -131,4 +131,3 @@ jobs:
       - name: Run Flask API tests
         run: |
           pytest scripts/test_flask_api.py -v
-
